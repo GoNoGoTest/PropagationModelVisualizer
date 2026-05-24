@@ -1,4 +1,4 @@
-import { MapContainer, TileLayer, Polygon, Marker, Popup, useMapEvents, Polyline, CircleMarker } from "react-leaflet";
+import { MapContainer, TileLayer, Polygon, Marker, Popup, useMapEvents, Polyline } from "react-leaflet";
 import { isSafeFilledRing, makeGeodesicCircleLine, makeRingPolygon, splitPolylineAtAntimeridian } from "./geo";
 import type { RingZone } from "./types";
 
@@ -12,8 +12,15 @@ function ZoneLayer({ qth, zone }: { qth: {lat:number;lon:number}, zone: RingZone
     return <Polygon positions={[ring.outer, ring.inner]} pathOptions={{color:colorMap[zone.colorRole], fillColor:colorMap[zone.colorRole], fillOpacity:zone.opacity, weight:1, dashArray:zone.dashed?"6 6":undefined}}><Popup>{zone.label}</Popup></Polygon>;
   }
   if (zone.renderingMode === "globalEnvelope") {
-    const p = makeGeodesicCircleLine(qth, zone.outerRadiusKm)[0];
-    return <CircleMarker center={p} radius={4} pathOptions={{color:colorMap.globalDx, fillOpacity:0.3}}><Popup>{zone.label}</Popup></CircleMarker>;
+    const globalLine = makeGeodesicCircleLine(qth, zone.outerRadiusKm);
+    const globalSegments = splitPolylineAtAntimeridian(globalLine);
+    const renderAsFilledZone = !zone.dashed;
+
+    if (renderAsFilledZone && globalSegments.length === 1) {
+      return <Polygon positions={globalSegments[0]} pathOptions={{color:colorMap.globalDx, fillColor:colorMap.globalDx, fillOpacity:zone.opacity, weight:1, dashArray:zone.dashed?"6 6":undefined}}><Popup>{zone.label}</Popup></Polygon>;
+    }
+
+    return <>{globalSegments.map((segment, i) => <Polyline key={`${zone.id}-g-${i}`} positions={segment} pathOptions={{color:colorMap.globalDx, opacity:zone.opacity, weight:2, dashArray:zone.dashed?"6 8":undefined}}><Popup>{zone.label}</Popup></Polyline>)}</>;
   }
   const outerSegments = splitPolylineAtAntimeridian(makeGeodesicCircleLine(qth, zone.outerRadiusKm));
   const innerSegments = zone.innerRadiusKm > 0 ? splitPolylineAtAntimeridian(makeGeodesicCircleLine(qth, zone.innerRadiusKm)) : [];
