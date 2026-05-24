@@ -28,7 +28,7 @@ export const oneHopDistanceKm = (elevationDeg: number, layerHeightKm: number) =>
 };
 export const formatKmRange = (i: number, o: number) => `cirka ${roundToNearest(i, 100).toLocaleString("sv-SE")}–${roundToNearest(o, 100).toLocaleString("sv-SE")} km`;
 
-export function calculatePropagation(input: { bandId: string; radiationProfileId: string; condition: ConditionId; time: TimeId; maxHops: 1|2|3; showGlobalDx: boolean; }): PropagationResult {
+export function calculatePropagation(input: { bandId: string; radiationProfileId: string; condition: ConditionId; time: TimeId; maxHops: number; }): PropagationResult {
   const band = bandProfiles.find((b) => b.id === input.bandId)!;
   const radiation = radiationProfiles.find((r) => r.id === input.radiationProfileId)!;
   const condition = conditionProfiles[input.condition];
@@ -41,7 +41,7 @@ export function calculatePropagation(input: { bandId: string; radiationProfileId
   const warnings: string[] = [];
   if (band.id === "6m") warnings.push("6 m visas som sporadiskt E-specialfall, inte normal HF-F2-propagation.");
   if (band.id === "10m" && input.condition === "poor" && input.time === "night") warnings.push("10 m är sannolikt stängt i denna kombination.");
-  if (input.showGlobalDx) warnings.push("Global-DX-zoner är mycket osäkra och visar endast att flera hopp kan ge interkontinental räckvidd. De är inte en prognos.");
+  warnings.push("Global-DX-zoner är mycket osäkra och visar endast att flera hopp kan ge interkontinental räckvidd. De är inte en prognos.");
 
   const angleMin = radiation.angleMinDeg;
   const angleMax = Math.min(radiation.angleMaxDeg, maxReturn);
@@ -60,25 +60,22 @@ export function calculatePropagation(input: { bandId: string; radiationProfileId
     const skipInner = nvisCoreZone ? Math.max(650, band.localNearRadiusKm) : band.localNearRadiusKm;
     if (inner1 > skipInner) skipZone = { id: "skip", label: `Skip zone / död zon, ${formatKmRange(skipInner, inner1)}`, innerRadiusKm: skipInner, outerRadiusKm: inner1, colorRole: "skip" as const, opacity: 0.15, dashed: true, renderingMode: "filled" as const };
 
-    const highBandForGlobal = ["10m", "12m", "15m", "20m"].includes(band.id);
-    const maxHop = input.showGlobalDx && highBandForGlobal ? 5 : input.maxHops;
+    const maxHop = Math.max(1, Math.min(5, input.maxHops));
     for (let hop = 1; hop <= maxHop; hop += 1) {
       const inner = hop * inner1; if (inner > 20000) break;
       const outer = Math.min(20000, hop * outer1);
       const veryUncertain = hop >= 3;
-      const globalHop = hop >= 4;
       const suffix = hop === 1 ? "" : hop === 2 ? ", mer osäkert" : hop === 3 ? ", mycket osäkert" : " / global DX, mycket osäkert";
       let opacity = 0.44 * numericRel * condition.ringOpacityMultiplier / (hop ** 1.25);
       if (hop >= 2) opacity = Math.max(opacity, 0.12);
-      if (hop >= 3) opacity = Math.max(opacity, 0.18);
-      if (globalHop) opacity = Math.max(Math.min(opacity, 0.22), 0.12);
-      hopZones.push({ id: `hop-${hop}`, label: `${hop === 3 ? "3:e" : `${hop}:a`} hoppet${suffix}, ${formatKmRange(inner, outer)}`.replace("4:a", "4:e").replace("5:a", "5:e"), hopNumber: hop, innerRadiusKm: inner, outerRadiusKm: outer, colorRole: (hop === 1 ? "hop1" : hop === 2 ? "hop2" : hop === 3 ? "hop3" : hop === 4 ? "hop4" : "hop5") as any, opacity, dashed: veryUncertain, renderingMode: globalHop ? "outline" : (veryUncertain ? "outline" : "filled") });
+      if (hop >= 3) opacity = Math.max(Math.min(opacity, 0.18), 0.09);
+      hopZones.push({ id: `hop-${hop}`, label: `${hop === 3 ? "3:e" : `${hop}:a`} hoppet${suffix}, ${formatKmRange(inner, outer)}`.replace("4:a", "4:e").replace("5:a", "5:e"), hopNumber: hop, innerRadiusKm: inner, outerRadiusKm: outer, colorRole: (hop === 1 ? "hop1" : hop === 2 ? "hop2" : hop === 3 ? "hop3" : hop === 4 ? "hop4" : "hop5") as any, opacity, dashed: veryUncertain, renderingMode: "filled" });
     }
   } else warnings.push("Skywave mycket osannolik i vald kombination.");
 
   let explanation = `Bandet ${band.label} med vald strålningsprofil visar typiska zoner där signalen kan återkomma om bandet bär. ${condition.explanation}`;
   if (band.id === "6m") explanation = "6 m visas som sporadiskt E-specialfall. Ringarna är grova typzoner för Es och ska inte tolkas som kontinuerlig HF-propagation.";
-  if (band.id === "10m") explanation = "På 10 m når man inte VK/ZL med ett enda normalt F2-hopp från Sverige. Sådana kontakter sker typiskt via flera F2-hopp, ibland 4–5 hopp, eller mer komplex multi-hop/chordal propagation. Därför visas global-DX-zoner endast som mycket osäkra konturer.";
+  if (band.id === "10m") explanation = "På 10 m når man inte VK/ZL med ett enda normalt F2-hopp från Sverige. Sådana kontakter sker typiskt via flera F2-hopp, ibland 4–5 hopp, eller mer komplex multi-hop/chordal propagation. Därför visas global-DX-zoner som mycket osäkra, lågmättade fält.";
 
   return { reliabilityCategory: rel, reliabilityLabel: reliabilityLabel[rel], layer, layerHeightKm, effectiveAngleMinDeg: angleMax >= angleMin ? angleMin : null, effectiveAngleMaxDeg: angleMax >= angleMin ? angleMax : null, localZone, nvisCoreZone, nvisFringeZone, skipZone, hopZones, warnings, firstHopRange, explanation };
 }
