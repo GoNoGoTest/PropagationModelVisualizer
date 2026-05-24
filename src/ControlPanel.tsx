@@ -10,6 +10,7 @@ interface ControlPanelProps {
   maxHops: 1 | 2 | 3; setMaxHops: (v: 1 | 2 | 3) => void;
   showLocal: boolean; setShowLocal: (v: boolean) => void;
   showNvis: boolean; setShowNvis: (v: boolean) => void;
+  nvisAvailable: boolean;
   showSkip: boolean; setShowSkip: (v: boolean) => void;
   showHops: boolean; setShowHops: (v: boolean) => void;
   showGlobalDx: boolean; setShowGlobalDx: (v: boolean) => void;
@@ -26,7 +27,8 @@ export function ControlPanel(props: ControlPanelProps) {
     <label>Antal hopp<select value={props.maxHops} onChange={(e)=>props.setMaxHops(Number(e.target.value) as 1|2|3)}><option value={1}>1</option><option value={2}>2</option><option value={3}>3</option></select></label>
     <label><input type="checkbox" checked={props.showGlobalDx} onChange={(e)=>props.setShowGlobalDx(e.target.checked)} /> Visa mycket osäkra global-DX-zoner</label>
     <label><input type="checkbox" checked={props.showLocal} onChange={(e)=>props.setShowLocal(e.target.checked)} /> Visa lokal/nära zon</label>
-    <label><input type="checkbox" checked={props.showNvis} onChange={(e)=>props.setShowNvis(e.target.checked)} /> Visa NVIS</label>
+    <label><input type="checkbox" checked={props.showNvis} disabled={!props.nvisAvailable} onChange={(e)=>props.setShowNvis(e.target.checked)} /> Visa NVIS</label>
+    {!props.nvisAvailable && <p className="hint">NVIS är ej sannolik i denna kombination av band, profil, tid och kondition.</p>}
     <label><input type="checkbox" checked={props.showSkip} onChange={(e)=>props.setShowSkip(e.target.checked)} /> Visa skip zone</label>
     <label><input type="checkbox" checked={props.showHops} onChange={(e)=>props.setShowHops(e.target.checked)} /> Visa hoppringar</label>
   </div>;
