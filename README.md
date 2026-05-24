@@ -25,3 +25,9 @@ npm run dev
 ## Viktigt
 
 Appen visar pedagogiska zoner, inte om ett specifikt QSO kommer fungera.
+
+
+## Nya förbättringar i denna version
+
+- Säkrare kart-rendering: stora/polnära/antimeridiankorsande zoner renderas som konturer istället för fyllda polygoner.
+- Valbar visning av mycket osäkra global-DX-zoner (hopp 4–5) för 10m/12m/15m/20m.
