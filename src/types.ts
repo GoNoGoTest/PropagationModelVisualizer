@@ -38,9 +38,6 @@ export interface RingZone {
   dashed?: boolean;
   renderingMode: RenderingMode;
   uncertaintyLabel?: string;
-  colorRole: "local" | "nvisCore" | "nvisFringe" | "skip" | "hop1" | "hop2" | "hop3";
-  opacity: number;
-  dashed?: boolean;
 }
 
 export interface PropagationResult {

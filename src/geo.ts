@@ -19,10 +19,6 @@ export function destinationPoint(lat: number, lon: number, bearingDeg: number, d
 }
 
 export function makeGeodesicCircleLine(center: { lat: number; lon: number }, radiusKm: number): [number, number][] {
-  return [radToDeg(lat2), radToDeg(lon2)];
-}
-
-export function makeCirclePolygon(center: { lat: number; lon: number }, radiusKm: number): [number, number][] {
   const pts: [number, number][] = [];
   for (let b = 0; b <= 360; b += 2) pts.push(destinationPoint(center.lat, center.lon, b, radiusKm));
   return pts;
@@ -54,6 +50,4 @@ export function isSafeFilledRing(center: { lat: number; lon: number }, innerRadi
 
 export function makeRingPolygon(center: { lat: number; lon: number }, innerRadiusKm: number, outerRadiusKm: number) {
   return { outer: makeGeodesicCircleLine(center, outerRadiusKm), inner: makeGeodesicCircleLine(center, innerRadiusKm).reverse() };
-export function makeRingPolygon(center: { lat: number; lon: number }, innerRadiusKm: number, outerRadiusKm: number) {
-  return { outer: makeCirclePolygon(center, outerRadiusKm), inner: makeCirclePolygon(center, innerRadiusKm).reverse() };
 }
