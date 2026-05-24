@@ -1,7 +1,7 @@
 import { bandProfiles } from "./bandProfiles";
 import { radiationProfiles } from "./radiationProfiles";
 import { clamp, degToRad, roundToNearest, EARTH_RADIUS_KM } from "./geo";
-import type { ConditionId, PropagationResult, ReliabilityCategory, TimeId } from "./types";
+import type { ConditionId, PropagationResult, ReliabilityCategory, SkipStatus, TimeId } from "./types";
 
 const reliabilityOrder: ReliabilityCategory[] = ["very_low", "low", "medium", "high"];
 export const reliabilityToNumeric = { very_low: 0.15, low: 0.35, medium: 0.65, high: 0.85 };
@@ -52,13 +52,39 @@ export function calculatePropagation(input: { bandId: string; radiationProfileId
     nvisFringeZone = { id: "nvis-fringe", label: "NVIS/regional osäker ytterzon, cirka 400–650 km", innerRadiusKm: 400, outerRadiusKm: 650, colorRole: "nvisFringe" as const, opacity: 0.12 * numericRel * radiation.nvisWeight, dashed: true, renderingMode: "filled" as const };
   }
   const hopZones = [] as PropagationResult["hopZones"]; let skipZone; let firstHopRange;
+  let skipStatus: SkipStatus = "none";
+  let skipStatusLabel = "Ingen skip-zon";
   if (angleMax >= angleMin) {
-    let inner1 = clamp(oneHopDistanceKm(angleMax, layerHeightKm), 50, 5000);
-    let outer1 = clamp(oneHopDistanceKm(angleMin, layerHeightKm), inner1 + 100, 5000);
+    const highBand = band.id === "10m" || band.id === "12m";
+    const minInner = highBand ? 120 : 50;
+    const minFirstHopWidth = highBand ? 180 : 100;
+    let inner1 = clamp(oneHopDistanceKm(angleMax, layerHeightKm), minInner, 5000);
+    let outer1 = clamp(oneHopDistanceKm(angleMin, layerHeightKm), inner1 + minFirstHopWidth, 5000);
     if (band.id === "6m") { inner1 = Math.max(inner1, 600); outer1 = Math.min(Math.max(outer1, 1800), 2300); }
     firstHopRange = { inner: inner1, outer: outer1 };
     const skipInner = nvisCoreZone ? Math.max(650, band.localNearRadiusKm) : band.localNearRadiusKm;
-    if (inner1 > skipInner) skipZone = { id: "skip", label: `Skip zone / död zon, ${formatKmRange(skipInner, inner1)}`, innerRadiusKm: skipInner, outerRadiusKm: inner1, colorRole: "skip" as const, opacity: 0.15, dashed: true, renderingMode: "filled" as const };
+    const nearLocalThresholdKm = highBand ? 140 : 80;
+    const uncertainSkip = highBand && Math.abs(inner1 - band.localNearRadiusKm) <= nearLocalThresholdKm;
+    if (inner1 > skipInner) {
+      const skipWidth = inner1 - skipInner;
+      if (uncertainSkip && skipWidth < 100) {
+        const uncertainOuter = Math.min(5000, skipInner + 150);
+        skipZone = { id: "skip", label: `Osäker skip-zon, ${formatKmRange(skipInner, uncertainOuter)}`, innerRadiusKm: skipInner, outerRadiusKm: uncertainOuter, colorRole: "skip" as const, opacity: 0.12, dashed: true, renderingMode: "filled" as const, uncertaintyLabel: "skip ej robust beräkningsbar" };
+        skipStatus = "uncertain";
+        skipStatusLabel = "Skip ej robust beräkningsbar";
+        warnings.push("10/12 m: skip-zon ligger nära lokalzonen och markeras därför som osäker (ej robust beräkningsbar).");
+      } else {
+        skipZone = { id: "skip", label: `Skip zone / död zon, ${formatKmRange(skipInner, inner1)}`, innerRadiusKm: skipInner, outerRadiusKm: inner1, colorRole: "skip" as const, opacity: 0.15, dashed: true, renderingMode: "filled" as const };
+        skipStatus = "defined";
+        skipStatusLabel = "Skip-zon identifierad";
+      }
+    } else if (uncertainSkip) {
+      const uncertainOuter = Math.min(5000, skipInner + 150);
+      skipZone = { id: "skip", label: `Osäker skip-zon, ${formatKmRange(skipInner, uncertainOuter)}`, innerRadiusKm: skipInner, outerRadiusKm: uncertainOuter, colorRole: "skip" as const, opacity: 0.1, dashed: true, renderingMode: "filled" as const, uncertaintyLabel: "skip ej robust beräkningsbar" };
+      skipStatus = "uncertain";
+      skipStatusLabel = "Skip ej robust beräkningsbar";
+      warnings.push("10/12 m: första hoppet sammanfaller nästan med lokalzon, så skip-zon kan inte bestämmas robust.");
+    }
 
     const maxHop = Math.max(1, Math.min(5, input.maxHops));
     for (let hop = 1; hop <= maxHop; hop += 1) {
@@ -71,11 +97,11 @@ export function calculatePropagation(input: { bandId: string; radiationProfileId
       if (hop >= 3) opacity = Math.max(Math.min(opacity, 0.18), 0.09);
       hopZones.push({ id: `hop-${hop}`, label: `${hop === 3 ? "3:e" : `${hop}:a`} hoppet${suffix}, ${formatKmRange(inner, outer)}`.replace("4:a", "4:e").replace("5:a", "5:e"), hopNumber: hop, innerRadiusKm: inner, outerRadiusKm: outer, colorRole: (hop === 1 ? "hop1" : hop === 2 ? "hop2" : hop === 3 ? "hop3" : hop === 4 ? "hop4" : "hop5") as any, opacity, dashed: veryUncertain, renderingMode: "filled" });
     }
-  } else warnings.push("Skywave mycket osannolik i vald kombination.");
+  } else { warnings.push("Skywave mycket osannolik i vald kombination."); skipStatus = "uncertain"; skipStatusLabel = "Skip ej robust beräkningsbar"; }
 
   let explanation = `Bandet ${band.label} med vald strålningsprofil visar typiska zoner där signalen kan återkomma om bandet bär. ${condition.explanation}`;
   if (band.id === "6m") explanation = "6 m visas som sporadiskt E-specialfall. Ringarna är grova typzoner för Es och ska inte tolkas som kontinuerlig HF-propagation.";
   if (band.id === "10m") explanation = "På 10 m når man inte VK/ZL med ett enda normalt F2-hopp från Sverige. Sådana kontakter sker typiskt via flera F2-hopp, ibland 4–5 hopp, eller mer komplex multi-hop/chordal propagation. Därför visas global-DX-zoner som mycket osäkra, lågmättade fält.";
 
-  return { reliabilityCategory: rel, reliabilityLabel: reliabilityLabel[rel], layer, layerHeightKm, effectiveAngleMinDeg: angleMax >= angleMin ? angleMin : null, effectiveAngleMaxDeg: angleMax >= angleMin ? angleMax : null, localZone, nvisCoreZone, nvisFringeZone, skipZone, hopZones, warnings, firstHopRange, explanation };
+  return { reliabilityCategory: rel, reliabilityLabel: reliabilityLabel[rel], layer, layerHeightKm, effectiveAngleMinDeg: angleMax >= angleMin ? angleMin : null, effectiveAngleMaxDeg: angleMax >= angleMin ? angleMax : null, localZone, nvisCoreZone, nvisFringeZone, skipZone, hopZones, warnings, firstHopRange, skipStatus, skipStatusLabel, explanation };
 }
