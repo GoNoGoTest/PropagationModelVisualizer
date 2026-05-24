@@ -1,7 +1,7 @@
 export type ReliabilityCategory = "very_low" | "low" | "medium" | "high";
 export type ConditionId = "poor" | "fair" | "good";
 export type TimeId = "day" | "twilight" | "night";
-export type RenderingMode = "filled" | "outline" | "globalEnvelope";
+export type RenderingMode = "filled";
 
 export interface BandProfile {
   id: string;
@@ -35,7 +35,6 @@ export interface RingZone {
   hopNumber?: number;
   colorRole: "local" | "nvisCore" | "nvisFringe" | "skip" | "hop1" | "hop2" | "hop3" | "hop4" | "hop5" | "globalDx";
   opacity: number;
-  dashed?: boolean;
   renderingMode: RenderingMode;
   uncertaintyLabel?: string;
 }

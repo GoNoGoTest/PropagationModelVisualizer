@@ -36,26 +36,7 @@ export function splitPolylineAtAntimeridian(points: [number, number][]): [number
   return segments.filter((s) => s.length > 1);
 }
 
-export function isSafeFilledRing(center: { lat: number; lon: number }, innerRadiusKm: number, outerRadiusKm: number, hopNumber?: number): boolean {
-  if ((hopNumber ?? 0) >= 3) return false;
-  if (outerRadiusKm > 3200) return false;
-  const poleDistKm = (90 - Math.abs(center.lat)) * 111;
-  if (outerRadiusKm >= poleDistKm - 150) return false;
-  const outer = makeGeodesicCircleLine(center, outerRadiusKm);
-  for (let i = 1; i < outer.length; i += 1) if (Math.abs(outer[i][1] - outer[i - 1][1]) > 180) return false;
-  const inner = makeGeodesicCircleLine(center, innerRadiusKm);
-  for (let i = 1; i < inner.length; i += 1) if (Math.abs(inner[i][1] - inner[i - 1][1]) > 180) return false;
-  return true;
-}
 
 export function makeRingPolygon(center: { lat: number; lon: number }, innerRadiusKm: number, outerRadiusKm: number) {
   return { outer: makeGeodesicCircleLine(center, outerRadiusKm), inner: makeGeodesicCircleLine(center, innerRadiusKm).reverse() };
-}
-
-export function makeRenderableRingSegments(center: { lat: number; lon: number }, innerRadiusKm: number, outerRadiusKm: number) {
-  const outer = makeGeodesicCircleLine(center, outerRadiusKm);
-  const inner = makeGeodesicCircleLine(center, innerRadiusKm).reverse();
-  const outerSegments = splitPolylineAtAntimeridian(outer);
-  const innerSegments = splitPolylineAtAntimeridian(inner);
-  return { outer, inner, outerSegments, innerSegments };
 }
