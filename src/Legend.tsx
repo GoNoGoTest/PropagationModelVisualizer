@@ -1,0 +1,1 @@
+export function Legend(){return <div className="legend"><strong>Pedagogisk tumregel. Inte faktisk QSO-prognos.</strong><p>Ringarna visar ungefär var signalen skulle kunna återkomma om bandet bär. De säger inte att bandet faktiskt är öppet.</p></div>}
