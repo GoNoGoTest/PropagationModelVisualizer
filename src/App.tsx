@@ -14,8 +14,8 @@ export default function App(){
   const [showLocal,setShowLocal]=useState(true); const [showNvis,setShowNvis]=useState(true); const [showSkip,setShowSkip]=useState(true); const [showHops,setShowHops]=useState(true); const [showGlobalDx,setShowGlobalDx]=useState(false);
   const result = useMemo(()=>calculatePropagation({bandId,radiationProfileId,condition,time,maxHops,showGlobalDx}),[bandId,radiationProfileId,condition,time,maxHops,showGlobalDx]);
   const zones=[showLocal?result.localZone:undefined,showNvis?result.nvisCoreZone:undefined,showNvis?result.nvisFringeZone:undefined,showSkip?result.skipZone:undefined,showHops?result.hopZones:undefined].flat().filter(Boolean) as any[];
-  const band = bandProfiles.find((b) => b.id === bandId)!;
-  const profile = radiationProfiles.find((r) => r.id === radiationProfileId)!;
+  const band = bandProfiles.find((b) => b.id === bandId) ?? bandProfiles[0];
+  const profile = radiationProfiles.find((r) => r.id === radiationProfileId) ?? radiationProfiles[0];
   return <div className="layout"><aside><ControlPanel {...{bandId,setBandId,radiationProfileId,setRadiationProfileId,condition,setCondition,time,setTime,maxHops,setMaxHops,showLocal,setShowLocal,showNvis,setShowNvis,showSkip,setShowSkip,showHops,setShowHops,showGlobalDx,setShowGlobalDx}} />
     <div className="panel"><h3>Modellstatus</h3><p>Band: {band.label}</p><p>Frekvensintervall: {band.frequencyRange}</p><p>Strålningsprofil: {profile.label}</p><p>Tid: {time}</p><p>Kondition: {condition}</p><p>Tillförlitlighet: {result.reliabilityLabel}</p><p>Lager: {result.layer}</p><p>Effektiv lagerhöjd: {Math.round(result.layerHeightKm/10)*10} km</p><p>Elevationsfönster: {result.effectiveAngleMinDeg ?? "-"}–{result.effectiveAngleMaxDeg ?? "-"}°</p><p>Första hoppet: {result.firstHopRange?formatKmRange(result.firstHopRange.inner,result.firstHopRange.outer):"-"}</p><p>Fyllda zoner visas bara där kartprojektionen kan visa dem rimligt. Stora polar- eller antimeridiankorsande zoner visas som konturer för att undvika missvisande kartartefakter.</p>{result.warnings.map((w)=> <p key={w}>⚠ {w}</p>)}</div>
     <ModelExplanation text={result.explanation}/></aside>
