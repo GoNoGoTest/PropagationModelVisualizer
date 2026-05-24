@@ -47,7 +47,7 @@ export function calculatePropagation(input: { bandId: string; radiationProfileId
   const angleMax = Math.min(radiation.angleMaxDeg, maxReturn);
   const localZone = { id: "local", label: `Lokal/nära zon, ${formatKmRange(0, band.localNearRadiusKm)}`, innerRadiusKm: 0, outerRadiusKm: band.localNearRadiusKm, colorRole: "local" as const, opacity: 0.24, renderingMode: "filled" as const };
   let nvisCoreZone; let nvisFringeZone;
-  if (band.nvisCandidate && radiation.nvisWeight >= 0.5 && maxReturn >= 75 && numericRel >= 0.25) {
+  if (band.nvisCandidate && radiation.nvisWeight >= 0.35 && maxReturn >= 65 && numericRel >= 0.2) {
     nvisCoreZone = { id: "nvis-core", label: "NVIS/regional kärnzon, cirka 0–400 km", innerRadiusKm: 0, outerRadiusKm: 400, colorRole: "nvisCore" as const, opacity: 0.24 * numericRel * radiation.nvisWeight, renderingMode: "filled" as const };
     nvisFringeZone = { id: "nvis-fringe", label: "NVIS/regional osäker ytterzon, cirka 400–650 km", innerRadiusKm: 400, outerRadiusKm: 650, colorRole: "nvisFringe" as const, opacity: 0.12 * numericRel * radiation.nvisWeight, dashed: true, renderingMode: "filled" as const };
   }
@@ -68,8 +68,10 @@ export function calculatePropagation(input: { bandId: string; radiationProfileId
       const veryUncertain = hop >= 3;
       const globalHop = hop >= 4;
       const suffix = hop === 1 ? "" : hop === 2 ? ", mer osäkert" : hop === 3 ? ", mycket osäkert" : " / global DX, mycket osäkert";
-      let opacity = 0.32 * numericRel * condition.ringOpacityMultiplier / (hop ** 1.6);
-      if (globalHop) opacity = Math.min(opacity, 0.08);
+      let opacity = 0.44 * numericRel * condition.ringOpacityMultiplier / (hop ** 1.25);
+      if (hop >= 2) opacity = Math.max(opacity, 0.12);
+      if (hop >= 3) opacity = Math.max(opacity, 0.18);
+      if (globalHop) opacity = Math.max(Math.min(opacity, 0.22), 0.12);
       hopZones.push({ id: `hop-${hop}`, label: `${hop === 3 ? "3:e" : `${hop}:a`} hoppet${suffix}, ${formatKmRange(inner, outer)}`.replace("4:a", "4:e").replace("5:a", "5:e"), hopNumber: hop, innerRadiusKm: inner, outerRadiusKm: outer, colorRole: (hop === 1 ? "hop1" : hop === 2 ? "hop2" : hop === 3 ? "hop3" : hop === 4 ? "hop4" : "hop5") as any, opacity, dashed: veryUncertain, renderingMode: globalHop ? "outline" : (veryUncertain ? "outline" : "filled") });
     }
   } else warnings.push("Skywave mycket osannolik i vald kombination.");

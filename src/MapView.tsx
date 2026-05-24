@@ -24,7 +24,8 @@ function ZoneLayer({ qth, zone }: { qth: {lat:number;lon:number}, zone: RingZone
   }
   const outerSegments = splitPolylineAtAntimeridian(makeGeodesicCircleLine(qth, zone.outerRadiusKm));
   const innerSegments = zone.innerRadiusKm > 0 ? splitPolylineAtAntimeridian(makeGeodesicCircleLine(qth, zone.innerRadiusKm)) : [];
-  return <>{outerSegments.map((s, i) => <Polyline key={`${zone.id}-o-${i}`} positions={s} pathOptions={{color:colorMap[zone.colorRole], opacity:zone.opacity, weight:2, dashArray:zone.dashed?"6 8":"4 4"}}><Popup>{zone.label}</Popup></Polyline>)}{innerSegments.map((s, i) => <Polyline key={`${zone.id}-i-${i}`} positions={s} pathOptions={{color:colorMap[zone.colorRole], opacity:Math.max(zone.opacity * 0.7, 0.06), weight:1, dashArray:"6 8"}} />)}</>;
+  const outerWeight = zone.hopNumber && zone.hopNumber >= 3 ? 3 : 2;
+  return <>{outerSegments.map((s, i) => <Polyline key={`${zone.id}-o-${i}`} positions={s} pathOptions={{color:colorMap[zone.colorRole], opacity:zone.opacity, weight:outerWeight, dashArray:zone.dashed?"10 8":"4 4"}}><Popup>{zone.label}</Popup></Polyline>)}{innerSegments.map((s, i) => <Polyline key={`${zone.id}-i-${i}`} positions={s} pathOptions={{color:colorMap[zone.colorRole], opacity:Math.max(zone.opacity * 0.75, 0.1), weight:1.5, dashArray:"8 8"}} />)}</>;
 }
 
 export function MapView({ qth, zones, onSetQth }: { qth: {lat:number;lon:number}|null; zones: RingZone[]; onSetQth: (q:{lat:number;lon:number})=>void }) {
