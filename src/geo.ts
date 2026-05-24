@@ -51,3 +51,11 @@ export function isSafeFilledRing(center: { lat: number; lon: number }, innerRadi
 export function makeRingPolygon(center: { lat: number; lon: number }, innerRadiusKm: number, outerRadiusKm: number) {
   return { outer: makeGeodesicCircleLine(center, outerRadiusKm), inner: makeGeodesicCircleLine(center, innerRadiusKm).reverse() };
 }
+
+export function makeRenderableRingSegments(center: { lat: number; lon: number }, innerRadiusKm: number, outerRadiusKm: number) {
+  const outer = makeGeodesicCircleLine(center, outerRadiusKm);
+  const inner = makeGeodesicCircleLine(center, innerRadiusKm).reverse();
+  const outerSegments = splitPolylineAtAntimeridian(outer);
+  const innerSegments = splitPolylineAtAntimeridian(inner);
+  return { outer, inner, outerSegments, innerSegments };
+}
