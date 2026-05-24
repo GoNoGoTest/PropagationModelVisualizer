@@ -40,6 +40,8 @@ export interface RingZone {
   uncertaintyLabel?: string;
 }
 
+export type SkipStatus = "defined" | "none" | "uncertain";
+
 export interface PropagationResult {
   reliabilityCategory: ReliabilityCategory;
   reliabilityLabel: string;
@@ -55,4 +57,6 @@ export interface PropagationResult {
   warnings: string[];
   explanation: string;
   firstHopRange?: { inner: number; outer: number };
+  skipStatus: SkipStatus;
+  skipStatusLabel: string;
 }
