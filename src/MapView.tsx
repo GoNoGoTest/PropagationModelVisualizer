@@ -15,16 +15,6 @@ function ZoneLayer({ qth, zone }: { qth: {lat:number;lon:number}, zone: RingZone
   }
 
   const { outerSegments, innerSegments } = makeRenderableRingSegments(qth, zone.innerRadiusKm, zone.outerRadiusKm);
-  const hasSplitSegments = outerSegments.length > 1 || innerSegments.length > 1;
-
-  if (hasSplitSegments && outerSegments.length === innerSegments.length) {
-    return <>
-      {outerSegments.map((outerSegment, idx) => {
-        const innerSegment = innerSegments[idx];
-        return <Polygon key={`${zone.id}-seg-${idx}`} positions={[outerSegment, [...innerSegment].reverse()]} pathOptions={style}><Popup>{zone.label}</Popup></Polygon>;
-      })}
-    </>;
-  }
 
   return <>
     {outerSegments.map((segment, idx) => <Polyline key={`${zone.id}-outer-${idx}`} positions={segment} pathOptions={{...style, fillOpacity:0}}><Popup>{zone.label}</Popup></Polyline>)}
