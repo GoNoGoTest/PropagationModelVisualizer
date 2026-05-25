@@ -18,48 +18,114 @@ export function destinationPoint(lat: number, lon: number, bearingDeg: number, d
   return [radToDeg(lat2), lonDeg];
 }
 
+function normalizeLonToRange(lon: number, min: number): number {
+  const span = 360;
+  let value = lon;
+  while (value < min) value += span;
+  while (value >= min + span) value -= span;
+  return value;
+}
+
+function adaptiveBearingStep(radiusKm: number, lat: number): number {
+  const radiusFactor = clamp(radiusKm / 1000, 0, 4);
+  const latFactor = clamp(Math.abs(lat) / 70, 0, 1.5);
+  const step = 2 - radiusFactor * 0.35 - latFactor * 0.6;
+  return clamp(step, 0.5, 2);
+}
+
 export function makeGeodesicCircleLine(center: { lat: number; lon: number }, radiusKm: number): [number, number][] {
   const pts: [number, number][] = [];
-  for (let b = 0; b <= 360; b += 2) pts.push(destinationPoint(center.lat, center.lon, b, radiusKm));
+  const step = adaptiveBearingStep(radiusKm, center.lat);
+  for (let b = 0; b < 360; b += step) pts.push(destinationPoint(center.lat, center.lon, b, radiusKm));
+  pts.push(pts[0]);
   return pts;
 }
 
 export function splitPolylineAtAntimeridian(points: [number, number][]): [number, number][][] {
   if (points.length < 2) return [points];
-  const normalizeLon = (lon: number) => {
-    if (lon > 180) return lon - 360;
-    if (lon < -180) return lon + 360;
-    return lon;
-  };
-  const segments: [number, number][][] = [[points[0]]];
-  for (let i = 1; i < points.length; i += 1) {
-    const [prevLat, prevLonNorm] = points[i - 1];
-    const [currLat, currLonNorm] = points[i];
-    let prevLon = prevLonNorm;
-    let currLon = currLonNorm;
-    const rawDeltaLon = currLon - prevLon;
-    const crossesDateline = Math.abs(rawDeltaLon) > 180;
-    if (rawDeltaLon > 180) currLon -= 360;
-    else if (rawDeltaLon < -180) currLon += 360;
 
+  const toCartesian = (lat: number, lon: number): [number, number, number] => {
+    const latR = degToRad(lat);
+    const lonR = degToRad(lon);
+    const c = Math.cos(latR);
+    return [c * Math.cos(lonR), c * Math.sin(lonR), Math.sin(latR)];
+  };
+
+  const fromCartesian = (v: [number, number, number]): [number, number] => {
+    const [x, y, z] = v;
+    const lat = radToDeg(Math.atan2(z, Math.hypot(x, y)));
+    const lon = radToDeg(Math.atan2(y, x));
+    return [lat, lon];
+  };
+
+  const slerp = (a: [number, number], b: [number, number], t: number): [number, number] => {
+    const v1 = toCartesian(a[0], a[1]);
+    const v2 = toCartesian(b[0], b[1]);
+    const dot = clamp(v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2], -1, 1);
+    const omega = Math.acos(dot);
+    if (omega < 1e-12) return a;
+    const sinOmega = Math.sin(omega);
+    const w1 = Math.sin((1 - t) * omega) / sinOmega;
+    const w2 = Math.sin(t * omega) / sinOmega;
+    return fromCartesian([v1[0] * w1 + v2[0] * w2, v1[1] * w1 + v2[1] * w2, v1[2] * w1 + v2[2] * w2]);
+  };
+
+  const refinedCrossing = (a: [number, number], b: [number, number], targetLon: number): [number, number] => {
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 32; i += 1) {
+      const mid = (lo + hi) / 2;
+      const p = slerp(a, b, mid);
+      const lon = normalizeLonToRange(p[1], targetLon - 180);
+      if (lon < targetLon) lo = mid;
+      else hi = mid;
+    }
+    const point = slerp(a, b, (lo + hi) / 2);
+    return [point[0], targetLon];
+  };
+
+  const unwrapped: [number, number][] = [points[0]];
+  for (let i = 1; i < points.length; i += 1) {
+    const [lat, lonRaw] = points[i];
+    const prevLon = unwrapped[unwrapped.length - 1][1];
+    let lon = lonRaw;
+    while (lon - prevLon > 180) lon -= 360;
+    while (lon - prevLon < -180) lon += 360;
+    unwrapped.push([lat, lon]);
+  }
+
+  const segments: [number, number][][] = [[[unwrapped[0][0], normalizeLon(unwrapped[0][1])]]];
+  for (let i = 1; i < unwrapped.length; i += 1) {
+    const prev = unwrapped[i - 1];
+    const curr = unwrapped[i];
+    if (Math.abs(curr[0] - prev[0]) < 1e-10 && Math.abs(curr[1] - prev[1]) < 1e-10) continue;
+
+    const prevBand = Math.floor((prev[1] + 180) / 360);
+    const currBand = Math.floor((curr[1] + 180) / 360);
     const currentSegment = segments[segments.length - 1];
-    if (!crossesDateline) {
-      currentSegment.push([currLat, currLonNorm]);
+
+    if (prevBand === currBand) {
+      currentSegment.push([curr[0], normalizeLon(curr[1])]);
       continue;
     }
 
-    const crossingLon = currLon > prevLon ? 180 : -180;
-    const t = (crossingLon - prevLon) / (currLon - prevLon);
-    const crossingLat = prevLat + (currLat - prevLat) * t;
-    currentSegment.push([crossingLat, crossingLon]);
+    const direction = curr[1] > prev[1] ? 1 : -1;
+    let walker = prev;
+    let band = prevBand;
+    while (band !== currBand) {
+      const targetLon = direction > 0 ? 180 + band * 360 : -180 + band * 360;
+      const crossing = refinedCrossing(walker, curr, targetLon);
+      currentSegment.push([crossing[0], normalizeLon(targetLon)]);
+      const wrappedLon = normalizeLon(targetLon + (direction > 0 ? -360 : 360));
+      segments.push([[crossing[0], wrappedLon]]);
+      band += direction;
+      walker = [crossing[0], targetLon + (direction > 0 ? 1e-8 : -1e-8)];
+    }
 
-    const wrappedCrossingLon = crossingLon === 180 ? -180 : 180;
-    segments.push([
-      [crossingLat, wrappedCrossingLon],
-      [currLat, normalizeLon(currLon)],
-    ]);
+    segments[segments.length - 1].push([curr[0], normalizeLon(curr[1])]);
   }
-  return segments.filter((s) => s.length > 1);
+
+  return segments.filter((segment) => segment.length > 1);
 }
 
 function ringSignedArea(points: [number, number][]): number {
@@ -87,12 +153,34 @@ function normalizeRingWinding(points: [number, number][], clockwise: boolean): [
   return [...points].reverse();
 }
 
+
+function segmentLengthSquared(a: [number, number], b: [number, number]): number {
+  const dLat = b[0] - a[0];
+  const dLon = b[1] - a[1];
+  return dLat * dLat + dLon * dLon;
+}
+
+function hasSelfIntersection(points: [number, number][]): boolean {
+  const ring = closeRing(points);
+  const ccw = (a: [number, number], b: [number, number], c: [number, number]) => (c[0] - a[0]) * (b[1] - a[1]) > (b[0] - a[0]) * (c[1] - a[1]);
+  for (let i = 0; i < ring.length - 1; i += 1) {
+    for (let j = i + 2; j < ring.length - 1; j += 1) {
+      if (i === 0 && j === ring.length - 2) continue;
+      const a = ring[i], b = ring[i + 1], c = ring[j], d = ring[j + 1];
+      if (segmentLengthSquared(a, b) < 1e-12 || segmentLengthSquared(c, d) < 1e-12) continue;
+      if (ccw(a, c, d) !== ccw(b, c, d) && ccw(a, b, c) !== ccw(a, b, d)) return true;
+    }
+  }
+  return false;
+}
+
 function isRenderableRingPart(outer: [number, number][], inner: [number, number][]): boolean {
   if (outer.length < 4 || inner.length < 4) return false;
   const outerArea = Math.abs(ringSignedArea(outer));
   const innerArea = Math.abs(ringSignedArea(inner));
   if (outerArea <= innerArea) return false;
   if (outerArea < 1e-4 || innerArea < 1e-6) return false;
+  if (hasSelfIntersection(outer) || hasSelfIntersection(inner)) return false;
   return true;
 }
 
