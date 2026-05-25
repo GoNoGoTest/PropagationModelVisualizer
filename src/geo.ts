@@ -26,12 +26,38 @@ export function makeGeodesicCircleLine(center: { lat: number; lon: number }, rad
 
 export function splitPolylineAtAntimeridian(points: [number, number][]): [number, number][][] {
   if (points.length < 2) return [points];
+  const normalizeLon = (lon: number) => {
+    if (lon > 180) return lon - 360;
+    if (lon < -180) return lon + 360;
+    return lon;
+  };
   const segments: [number, number][][] = [[points[0]]];
   for (let i = 1; i < points.length; i += 1) {
-    const prev = points[i - 1];
-    const curr = points[i];
-    if (Math.abs(curr[1] - prev[1]) > 180) segments.push([curr]);
-    else segments[segments.length - 1].push(curr);
+    const [prevLat, prevLonNorm] = points[i - 1];
+    const [currLat, currLonNorm] = points[i];
+    let prevLon = prevLonNorm;
+    let currLon = currLonNorm;
+    const rawDeltaLon = currLon - prevLon;
+    const crossesDateline = Math.abs(rawDeltaLon) > 180;
+    if (rawDeltaLon > 180) currLon -= 360;
+    else if (rawDeltaLon < -180) currLon += 360;
+
+    const currentSegment = segments[segments.length - 1];
+    if (!crossesDateline) {
+      currentSegment.push([currLat, currLonNorm]);
+      continue;
+    }
+
+    const crossingLon = currLon > prevLon ? 180 : -180;
+    const t = (crossingLon - prevLon) / (currLon - prevLon);
+    const crossingLat = prevLat + (currLat - prevLat) * t;
+    currentSegment.push([crossingLat, crossingLon]);
+
+    const wrappedCrossingLon = crossingLon === 180 ? -180 : 180;
+    segments.push([
+      [crossingLat, wrappedCrossingLon],
+      [currLat, normalizeLon(currLon)],
+    ]);
   }
   return segments.filter((s) => s.length > 1);
 }
@@ -71,6 +97,8 @@ function isRenderableRingPart(outer: [number, number][], inner: [number, number]
 }
 
 export function makeRingGeometryForLeaflet(center: { lat: number; lon: number }, innerRadiusKm: number, outerRadiusKm: number): [number, number][][][] {
+  // Leaflet polygon filling treats a single ring that jumps from +180° to -180° as crossing the whole map;
+  // splitting both inner and outer curves at the antimeridian keeps each filled part on the intended side.
   const outerSegments = splitPolylineAtAntimeridian(makeGeodesicCircleLine(center, outerRadiusKm));
   const innerSegments = splitPolylineAtAntimeridian(makeGeodesicCircleLine(center, innerRadiusKm));
 
