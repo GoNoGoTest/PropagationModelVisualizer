@@ -36,6 +36,76 @@ export function splitPolylineAtAntimeridian(points: [number, number][]): [number
   return segments.filter((s) => s.length > 1);
 }
 
+function ringSignedArea(points: [number, number][]): number {
+  let area = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const [lat1, lon1] = points[i];
+    const [lat2, lon2] = points[(i + 1) % points.length];
+    area += lon1 * lat2 - lon2 * lat1;
+  }
+  return area / 2;
+}
+
+function closeRing(points: [number, number][]): [number, number][] {
+  if (points.length === 0) return points;
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (first[0] === last[0] && first[1] === last[1]) return points;
+  return [...points, first];
+}
+
+function normalizeRingWinding(points: [number, number][], clockwise: boolean): [number, number][] {
+  const area = ringSignedArea(points);
+  const isClockwise = area < 0;
+  if (clockwise === isClockwise) return points;
+  return [...points].reverse();
+}
+
+function isRenderableRingPart(outer: [number, number][], inner: [number, number][]): boolean {
+  if (outer.length < 4 || inner.length < 4) return false;
+  const outerArea = Math.abs(ringSignedArea(outer));
+  const innerArea = Math.abs(ringSignedArea(inner));
+  if (outerArea <= innerArea) return false;
+  if (outerArea < 1e-4 || innerArea < 1e-6) return false;
+  return true;
+}
+
+export function makeRingGeometryForLeaflet(center: { lat: number; lon: number }, innerRadiusKm: number, outerRadiusKm: number): [number, number][][][] {
+  const outerSegments = splitPolylineAtAntimeridian(makeGeodesicCircleLine(center, outerRadiusKm));
+  const innerSegments = splitPolylineAtAntimeridian(makeGeodesicCircleLine(center, innerRadiusKm));
+
+  const innerCandidates = innerSegments.map((segment) => ({
+    segment,
+    meanLon: segment.reduce((acc, [, lon]) => acc + lon, 0) / segment.length,
+    used: false,
+  }));
+
+  const parts: [number, number][][][] = [];
+  for (const outer of outerSegments) {
+    const outerMeanLon = outer.reduce((acc, [, lon]) => acc + lon, 0) / outer.length;
+
+    let bestIndex = -1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    innerCandidates.forEach((candidate, index) => {
+      if (candidate.used) return;
+      const distance = Math.abs(candidate.meanLon - outerMeanLon);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    });
+    if (bestIndex < 0) continue;
+    innerCandidates[bestIndex].used = true;
+
+    const outerClosed = normalizeRingWinding(closeRing(outer), true);
+    const innerClosed = normalizeRingWinding(closeRing(innerCandidates[bestIndex].segment), false);
+
+    if (!isRenderableRingPart(outerClosed, innerClosed)) continue;
+    parts.push([outerClosed, innerClosed]);
+  }
+
+  return parts;
+}
 
 export function makeRingPolygon(center: { lat: number; lon: number }, innerRadiusKm: number, outerRadiusKm: number) {
   return { outer: makeGeodesicCircleLine(center, outerRadiusKm), inner: makeGeodesicCircleLine(center, innerRadiusKm).reverse() };
