@@ -41,15 +41,15 @@ export function calculatePropagation(input: { bandId: string; radiationProfileId
   const warnings: string[] = [];
   if (band.id === "6m") warnings.push("6 m visas som sporadiskt E-specialfall, inte normal HF-F2-propagation.");
   if (band.id === "10m" && input.condition === "poor" && input.time === "night") warnings.push("10 m är sannolikt stängt i denna kombination.");
-  warnings.push("Global-DX-zoner är mycket osäkra och visar endast att flera hopp kan ge interkontinental räckvidd. De är inte en prognos.");
+  warnings.push("Alla hopzoner visas som fyllda ringar. Osäkerhet markeras endast med lägre genomskinlighet.");
 
   const angleMin = radiation.angleMinDeg;
   const angleMax = Math.min(radiation.angleMaxDeg, maxReturn);
-  const localZone = { id: "local", label: `Lokal/nära zon, ${formatKmRange(0, band.localNearRadiusKm)}`, innerRadiusKm: 0, outerRadiusKm: band.localNearRadiusKm, colorRole: "local" as const, opacity: 0.24, renderingMode: "filled" as const };
+  const localZone = { id: "local", label: `Markvåg (lokal/nära zon), ${formatKmRange(0, band.localNearRadiusKm)}`, innerRadiusKm: 0, outerRadiusKm: band.localNearRadiusKm, colorRole: "local" as const, opacity: 0.24, renderingMode: "filled" as const };
   let nvisCoreZone; let nvisFringeZone;
   if (band.nvisCandidate && radiation.nvisWeight >= 0.35 && maxReturn >= 65 && numericRel >= 0.2) {
     nvisCoreZone = { id: "nvis-core", label: "NVIS/regional kärnzon, cirka 0–400 km", innerRadiusKm: 0, outerRadiusKm: 400, colorRole: "nvisCore" as const, opacity: 0.24 * numericRel * radiation.nvisWeight, renderingMode: "filled" as const };
-    nvisFringeZone = { id: "nvis-fringe", label: "NVIS/regional osäker ytterzon, cirka 400–650 km", innerRadiusKm: 400, outerRadiusKm: 650, colorRole: "nvisFringe" as const, opacity: 0.12 * numericRel * radiation.nvisWeight, dashed: true, renderingMode: "filled" as const };
+    nvisFringeZone = { id: "nvis-fringe", label: "NVIS/regional osäker ytterzon, cirka 400–650 km", innerRadiusKm: 400, outerRadiusKm: 650, colorRole: "nvisFringe" as const, opacity: 0.12 * numericRel * radiation.nvisWeight, renderingMode: "filled" as const };
   }
   const hopZones = [] as PropagationResult["hopZones"]; let skipZone; let firstHopRange;
   let skipStatus: SkipStatus = "none";
@@ -69,33 +69,32 @@ export function calculatePropagation(input: { bandId: string; radiationProfileId
       const skipWidth = inner1 - skipInner;
       if (uncertainSkip && skipWidth < 100) {
         const uncertainOuter = Math.min(5000, skipInner + 150);
-        skipZone = { id: "skip", label: `Osäker skip-zon, ${formatKmRange(skipInner, uncertainOuter)}`, innerRadiusKm: skipInner, outerRadiusKm: uncertainOuter, colorRole: "skip" as const, opacity: 0.12, dashed: true, renderingMode: "filled" as const, uncertaintyLabel: "skip ej robust beräkningsbar" };
+        skipZone = { id: "skip", label: `Osäker skip-zon, ${formatKmRange(skipInner, uncertainOuter)}`, innerRadiusKm: skipInner, outerRadiusKm: uncertainOuter, colorRole: "skip" as const, opacity: 0.12, renderingMode: "filled" as const, uncertaintyLabel: "skip ej robust beräkningsbar" };
         skipStatus = "uncertain";
         skipStatusLabel = "Skip ej robust beräkningsbar";
         warnings.push("10/12 m: skip-zon ligger nära lokalzonen och markeras därför som osäker (ej robust beräkningsbar).");
       } else {
-        skipZone = { id: "skip", label: `Skip zone / död zon, ${formatKmRange(skipInner, inner1)}`, innerRadiusKm: skipInner, outerRadiusKm: inner1, colorRole: "skip" as const, opacity: 0.15, dashed: true, renderingMode: "filled" as const };
+        skipZone = { id: "skip", label: `Skip zone / död zon, ${formatKmRange(skipInner, inner1)}`, innerRadiusKm: skipInner, outerRadiusKm: inner1, colorRole: "skip" as const, opacity: 0.15, renderingMode: "filled" as const };
         skipStatus = "defined";
         skipStatusLabel = "Skip-zon identifierad";
       }
     } else if (uncertainSkip) {
       const uncertainOuter = Math.min(5000, skipInner + 150);
-      skipZone = { id: "skip", label: `Osäker skip-zon, ${formatKmRange(skipInner, uncertainOuter)}`, innerRadiusKm: skipInner, outerRadiusKm: uncertainOuter, colorRole: "skip" as const, opacity: 0.1, dashed: true, renderingMode: "filled" as const, uncertaintyLabel: "skip ej robust beräkningsbar" };
+      skipZone = { id: "skip", label: `Osäker skip-zon, ${formatKmRange(skipInner, uncertainOuter)}`, innerRadiusKm: skipInner, outerRadiusKm: uncertainOuter, colorRole: "skip" as const, opacity: 0.1, renderingMode: "filled" as const, uncertaintyLabel: "skip ej robust beräkningsbar" };
       skipStatus = "uncertain";
       skipStatusLabel = "Skip ej robust beräkningsbar";
       warnings.push("10/12 m: första hoppet sammanfaller nästan med lokalzon, så skip-zon kan inte bestämmas robust.");
     }
 
-    const maxHop = Math.max(1, Math.min(5, input.maxHops));
+    const maxHop = Math.max(1, Math.min(8, input.maxHops));
+    const alphaByHop = [0.32, 0.27, 0.23, 0.2, 0.17, 0.14, 0.11, 0.08];
     for (let hop = 1; hop <= maxHop; hop += 1) {
       const inner = hop * inner1; if (inner > 20000) break;
       const outer = Math.min(20000, hop * outer1);
-      const veryUncertain = hop >= 3;
-      const suffix = hop === 1 ? "" : hop === 2 ? ", mer osäkert" : hop === 3 ? ", mycket osäkert" : " / global DX, mycket osäkert";
-      let opacity = 0.44 * numericRel * condition.ringOpacityMultiplier / (hop ** 1.25);
-      if (hop >= 2) opacity = Math.max(opacity, 0.12);
-      if (hop >= 3) opacity = Math.max(Math.min(opacity, 0.18), 0.09);
-      hopZones.push({ id: `hop-${hop}`, label: `${hop === 3 ? "3:e" : `${hop}:a`} hoppet${suffix}, ${formatKmRange(inner, outer)}`.replace("4:a", "4:e").replace("5:a", "5:e"), hopNumber: hop, innerRadiusKm: inner, outerRadiusKm: outer, colorRole: (hop === 1 ? "hop1" : hop === 2 ? "hop2" : hop === 3 ? "hop3" : hop === 4 ? "hop4" : "hop5") as any, opacity, dashed: veryUncertain, renderingMode: "filled" });
+      const hopLabel = hop === 1 ? "1:a" : hop === 2 ? "2:a" : hop === 3 ? "3:e" : `${hop}:e`;
+      const uncertainty = hop === 8 ? ", osäkert 8:e hopp" : hop >= 3 ? ", ökande osäkerhet" : "";
+      const opacity = Math.max(0.05, alphaByHop[Math.min(hop - 1, alphaByHop.length - 1)] * numericRel * condition.ringOpacityMultiplier);
+      hopZones.push({ id: `hop-${hop}`, label: `${hopLabel} hoppet${uncertainty}, ${formatKmRange(inner, outer)}`, hopNumber: hop, innerRadiusKm: inner, outerRadiusKm: outer, colorRole: (hop === 1 ? "hop1" : hop === 2 ? "hop2" : hop === 3 ? "hop3" : hop === 4 ? "hop4" : "hop5") as any, opacity, renderingMode: "filled" });
     }
   } else { warnings.push("Skywave mycket osannolik i vald kombination."); skipStatus = "uncertain"; skipStatusLabel = "Skip ej robust beräkningsbar"; }
 
