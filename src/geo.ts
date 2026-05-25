@@ -33,6 +33,13 @@ function closeRing(points: [number, number][]): [number, number][] {
   return [...points, first];
 }
 
+function normalizeLon(lon: number): number {
+  let value = lon;
+  while (value > 180) value -= 360;
+  while (value < -180) value += 360;
+  return value;
+}
+
 export function makeGeodesicCircleLine(center: { lat: number; lon: number }, radiusKm: number): [number, number][] {
   const pts: [number, number][] = [];
   const step = adaptiveBearingStep(radiusKm, center.lat);
@@ -54,23 +61,65 @@ function unwrapRing(points: [number, number][], anchorLon: number): [number, num
   return unwrapped;
 }
 
-function ringDifference(outer: [number, number][], inner: [number, number][]): [number, number][][][] {
-  if (outer.length < 4 || inner.length < 4) return [];
-  return [[outer, inner.slice().reverse()]];
+function splitSegmentByDateline(a: [number, number], b: [number, number]): [number, number][][] {
+  const [lat1, lon1] = a;
+  const [lat2, lon2] = b;
+  const delta = lon2 - lon1;
+  if (Math.abs(delta) <= 180) return [[a, b]];
+
+  const crossingLon = delta > 0 ? 180 : -180;
+  const targetLon = delta > 0 ? -180 : 180;
+  const t = (crossingLon - lon1) / delta;
+  const latX = lat1 + (lat2 - lat1) * t;
+
+  return [
+    [a, [latX, crossingLon]],
+    [[latX, targetLon], b],
+  ];
+}
+
+function splitPolygonAtDateline(poly: [number, number][]): [number, number][][] {
+  if (poly.length < 4) return [];
+  const parts: [number, number][][] = [];
+  let current: [number, number][] = [poly[0]];
+
+  for (let i = 0; i < poly.length - 1; i += 1) {
+    const segs = splitSegmentByDateline(poly[i], poly[i + 1]);
+    if (segs.length === 1) {
+      current.push(segs[0][1]);
+      continue;
+    }
+    current.push(segs[0][1]);
+    if (current.length >= 4) parts.push(closeRing(current));
+    current = [segs[1][0], segs[1][1]];
+  }
+
+  if (current.length >= 4) parts.push(closeRing(current));
+  return parts.map((ring) => ring.map(([lat, lon]) => [lat, normalizeLon(lon)]));
 }
 
 export function makeRingGeometryForLeaflet(center: { lat: number; lon: number }, innerRadiusKm: number, outerRadiusKm: number): [number, number][][][] {
-  // 1) generate dense outer/inner rings in a continuous longitude domain around center.
-  const outerRing = unwrapRing(makeGeodesicCircleLine(center, outerRadiusKm), center.lon);
-  const innerRing = unwrapRing(makeGeodesicCircleLine(center, innerRadiusKm), center.lon);
+  if (outerRadiusKm <= innerRadiusKm) return [];
+  const step = adaptiveBearingStep(outerRadiusKm, center.lat);
+  const outerRaw: [number, number][] = [];
+  const innerRaw: [number, number][] = [];
+  for (let b = 0; b < 360; b += step) {
+    outerRaw.push(destinationPoint(center.lat, center.lon, b, outerRadiusKm));
+    innerRaw.push(destinationPoint(center.lat, center.lon, b, innerRadiusKm));
+  }
+  const outer = unwrapRing(closeRing(outerRaw), center.lon);
+  const inner = unwrapRing(closeRing(innerRaw), center.lon);
+  if (outer.length < 4 || inner.length < 4 || outer.length !== inner.length) return [];
 
-  // 2) ring = outer - inner (single annulus polygon with one hole).
-  const annulus = ringDifference(outerRing, innerRing);
-  if (annulus.length === 0) return [];
-
-  // 3) Keep coordinates unwrapped; forcing [-180,180] introduces antimeridian jumps that
-  // create self-intersections and large fill artifacts in Leaflet for wide rings.
-  return annulus.map(([outer, inner]) => [closeRing(outer), closeRing(inner)]);
+  const polygons: [number, number][][][] = [];
+  for (let i = 0; i < outer.length - 1; i += 1) {
+    const wedge = closeRing([outer[i], outer[i + 1], inner[i + 1], inner[i]]);
+    const split = splitPolygonAtDateline(wedge);
+    for (const ring of split) {
+      if (ring.length >= 4) polygons.push([ring]);
+    }
+  }
+  return polygons;
 }
 
 export function makeRingPolygon(center: { lat: number; lon: number }, innerRadiusKm: number, outerRadiusKm: number) {
