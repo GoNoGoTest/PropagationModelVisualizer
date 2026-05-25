@@ -96,40 +96,123 @@ function isRenderableRingPart(outer: [number, number][], inner: [number, number]
   return true;
 }
 
+function normalizeLon(lon: number): number {
+  let value = lon;
+  while (value > 180) value -= 360;
+  while (value < -180) value += 360;
+  return value;
+}
+
+function unwrapRing(points: [number, number][], anchorLon: number): [number, number][] {
+  if (points.length === 0) return [];
+  const unwrapped: [number, number][] = [];
+  let prev = anchorLon;
+  for (const [lat, lonRaw] of points) {
+    let lon = lonRaw;
+    while (lon - prev > 180) lon -= 360;
+    while (lon - prev < -180) lon += 360;
+    unwrapped.push([lat, lon]);
+    prev = lon;
+  }
+  return unwrapped;
+}
+
+function closeAndNormalizeRing(points: [number, number][], clockwise: boolean): [number, number][] {
+  return normalizeRingWinding(closeRing(points), clockwise);
+}
+
+function clipRingByVerticalLine(points: [number, number][], cutLon: number, keepRight: boolean): [number, number][] {
+  if (points.length < 3) return [];
+  const isInside = (lon: number) => (keepRight ? lon >= cutLon : lon <= cutLon);
+  const intersection = (a: [number, number], b: [number, number]): [number, number] => {
+    const [lat1, lon1] = a;
+    const [lat2, lon2] = b;
+    const t = (cutLon - lon1) / (lon2 - lon1);
+    return [lat1 + (lat2 - lat1) * t, cutLon];
+  };
+
+  const input = closeRing(points);
+  const clipped: [number, number][] = [];
+  for (let i = 0; i < input.length - 1; i += 1) {
+    const curr = input[i];
+    const next = input[i + 1];
+    const currInside = isInside(curr[1]);
+    const nextInside = isInside(next[1]);
+
+    if (currInside && nextInside) {
+      clipped.push(next);
+    } else if (currInside && !nextInside) {
+      clipped.push(intersection(curr, next));
+    } else if (!currInside && nextInside) {
+      clipped.push(intersection(curr, next));
+      clipped.push(next);
+    }
+  }
+  if (clipped.length < 3) return [];
+  return clipped;
+}
+
+function ringCentroid(points: [number, number][]): [number, number] {
+  const ring = closeRing(points);
+  let area = 0;
+  let sumLat = 0;
+  let sumLon = 0;
+  for (let i = 0; i < ring.length - 1; i += 1) {
+    const [lat1, lon1] = ring[i];
+    const [lat2, lon2] = ring[i + 1];
+    const cross = lon1 * lat2 - lon2 * lat1;
+    area += cross;
+    sumLat += (lat1 + lat2) * cross;
+    sumLon += (lon1 + lon2) * cross;
+  }
+  if (Math.abs(area) < 1e-12) return ring[0];
+  return [sumLat / (3 * area), sumLon / (3 * area)];
+}
+
+function pointInPolygon(point: [number, number], polygon: [number, number][]): boolean {
+  const [py, px] = point;
+  const ring = closeRing(polygon);
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const [yi, xi] = ring[i];
+    const [yj, xj] = ring[j];
+    const intersects = yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi || 1e-12) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function toLeafletLonDomain(points: [number, number][]): [number, number][] {
+  return points.map(([lat, lon]) => [lat, normalizeLon(lon)]);
+}
+
 export function makeRingGeometryForLeaflet(center: { lat: number; lon: number }, innerRadiusKm: number, outerRadiusKm: number): [number, number][][][] {
-  // Leaflet polygon filling treats a single ring that jumps from +180° to -180° as crossing the whole map;
-  // splitting both inner and outer curves at the antimeridian keeps each filled part on the intended side.
-  const outerSegments = splitPolylineAtAntimeridian(makeGeodesicCircleLine(center, outerRadiusKm));
-  const innerSegments = splitPolylineAtAntimeridian(makeGeodesicCircleLine(center, innerRadiusKm));
-
-  const innerCandidates = innerSegments.map((segment) => ({
-    segment,
-    meanLon: segment.reduce((acc, [, lon]) => acc + lon, 0) / segment.length,
-    used: false,
-  }));
-
   const parts: [number, number][][][] = [];
-  for (const outer of outerSegments) {
-    const outerMeanLon = outer.reduce((acc, [, lon]) => acc + lon, 0) / outer.length;
+  const outerRing = unwrapRing(makeGeodesicCircleLine(center, outerRadiusKm), center.lon);
+  const innerRing = unwrapRing(makeGeodesicCircleLine(center, innerRadiusKm), center.lon);
+  const cutLon = center.lon - 180;
 
-    let bestIndex = -1;
-    let bestDistance = Number.POSITIVE_INFINITY;
-    innerCandidates.forEach((candidate, index) => {
-      if (candidate.used) return;
-      const distance = Math.abs(candidate.meanLon - outerMeanLon);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestIndex = index;
+  [false, true].forEach((keepRight) => {
+    const outerClipped = closeAndNormalizeRing(clipRingByVerticalLine(outerRing, cutLon, keepRight), true);
+    const innerClipped = closeAndNormalizeRing(clipRingByVerticalLine(innerRing, cutLon, keepRight), false);
+    if (outerClipped.length === 0 || innerClipped.length === 0) return;
+    if (!isRenderableRingPart(outerClipped, innerClipped)) return;
+
+    const holeCenter = ringCentroid(innerClipped);
+    if (!pointInPolygon(holeCenter, outerClipped)) return;
+
+    parts.push([toLeafletLonDomain(outerClipped), toLeafletLonDomain(innerClipped)]);
+  });
+
+  if (parts.length === 0) {
+    const fallbackOuter = closeAndNormalizeRing(outerRing, true);
+    const fallbackInner = closeAndNormalizeRing(innerRing, false);
+    if (isRenderableRingPart(fallbackOuter, fallbackInner)) {
+      const holeCenter = ringCentroid(fallbackInner);
+      if (pointInPolygon(holeCenter, fallbackOuter)) {
+        parts.push([toLeafletLonDomain(fallbackOuter), toLeafletLonDomain(fallbackInner)]);
       }
-    });
-    if (bestIndex < 0) continue;
-    innerCandidates[bestIndex].used = true;
-
-    const outerClosed = normalizeRingWinding(closeRing(outer), true);
-    const innerClosed = normalizeRingWinding(closeRing(innerCandidates[bestIndex].segment), false);
-
-    if (!isRenderableRingPart(outerClosed, innerClosed)) continue;
-    parts.push([outerClosed, innerClosed]);
+    }
   }
 
   return parts;
