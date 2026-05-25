@@ -6,6 +6,38 @@ import { ModelExplanation } from "./ModelExplanation";
 import { bandProfiles } from "./bandProfiles";
 import { radiationProfiles } from "./radiationProfiles";
 import { calculatePropagation, formatKmRange } from "./propagationModel";
+import { makeRingGeometryForLeaflet } from "./geo";
+
+type Qth = { lat: number; lon: number };
+type RingSpec = { id: string; innerRadiusKm: number; outerRadiusKm: number };
+
+type GeoJsonRing = [number, number][];
+type GeoJsonPolygonCoords = GeoJsonRing[];
+type GeoJsonMultiPolygonCoords = GeoJsonPolygonCoords[];
+
+function toGeoJsonRing(ring: [number, number][]): GeoJsonRing {
+  return ring.map(([lat, lon]) => [lon, lat]);
+}
+
+export function makeZoneFeatureCollection(zones: RingSpec[], center: Qth) {
+  return {
+    type: "FeatureCollection" as const,
+    features: zones.flatMap((zone) => {
+      const parts = makeRingGeometryForLeaflet(center, zone.innerRadiusKm, zone.outerRadiusKm);
+      if (parts.length === 0) return [];
+
+      const geometry =
+        parts.length === 1
+          ? ({ type: "Polygon" as const, coordinates: parts[0].map(toGeoJsonRing) as GeoJsonPolygonCoords })
+          : ({
+              type: "MultiPolygon" as const,
+              coordinates: parts.map((polygon) => polygon.map(toGeoJsonRing)) as GeoJsonMultiPolygonCoords,
+            });
+
+      return [{ type: "Feature" as const, properties: { zoneId: zone.id }, geometry }];
+    }),
+  };
+}
 
 export default function App(){
   const [qth,setQth]=useState<{lat:number;lon:number}|null>(null);
