@@ -39,6 +39,28 @@ export interface RingZone {
   uncertaintyLabel?: string;
 }
 
+export type LeafletLatLngTuple = [number, number];
+export type LeafletPolygonCoordinates = LeafletLatLngTuple[][];
+export type LeafletMultiPolygonCoordinates = LeafletLatLngTuple[][][];
+
+export type RenderableZoneGeometry =
+  | {
+      type: "polygon";
+      coordinates: LeafletPolygonCoordinates;
+    }
+  | {
+      type: "multiPolygon";
+      coordinates: LeafletMultiPolygonCoordinates;
+    };
+
+export interface RenderableZone {
+  zoneId: RingZone["id"];
+  label: RingZone["label"];
+  colorRole: RingZone["colorRole"];
+  opacity: RingZone["opacity"];
+  geometry: RenderableZoneGeometry;
+}
+
 export type SkipStatus = "defined" | "none" | "uncertain";
 
 export interface PropagationResult {
