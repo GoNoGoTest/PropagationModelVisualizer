@@ -34,10 +34,14 @@ export function OpenLayersView({ featureCollection, points }: { featureCollectio
 
   useEffect(() => {
     let map: any;
+    let canceled = false;
+
     loadOpenLayers()
       .then(() => {
-        if (!targetRef.current || !window.ol) return;
+        if (!targetRef.current || !window.ol || canceled) return;
         const ol = window.ol;
+
+        targetRef.current.innerHTML = "";
 
         const features = new ol.format.GeoJSON().readFeatures(featureCollection, { featureProjection: "EPSG:3857" });
         for (const [lat, lon] of points) {
@@ -64,12 +68,15 @@ export function OpenLayersView({ featureCollection, points }: { featureCollectio
               },
             }),
           ],
-          view: new ol.View({ center: ol.proj.fromLonLat([179, 74]), zoom: 2 }),
+          view: new ol.View({ center: ol.proj.fromLonLat([170, 40]), zoom: 1 }),
         });
       })
       .catch(() => {});
 
-    return () => map?.setTarget(undefined);
+    return () => {
+      canceled = true;
+      map?.setTarget(undefined);
+    };
   }, [featureCollection, points]);
 
   return <div style={{ height: "420px", width: "100%" }} ref={targetRef} />;
